@@ -27,9 +27,9 @@ from SmartApi import SmartConnect
 
 load_dotenv()
 
-APP_VERSION = "11.6-BALANCED-OPPORTUNITY"
+APP_VERSION = "11.7-ACTIVE-SNIPER"
 
-app = FastAPI(title="RIGA AI Option Buying Scanner v11.6 Balanced Opportunity", version=APP_VERSION)
+app = FastAPI(title="RIGA AI Option Buying Scanner v11.7 Active Sniper", version=APP_VERSION)
 
 Side = Literal["CE", "PE"]
 Bias = Literal["BULLISH", "BEARISH", "NEUTRAL"]
@@ -47,28 +47,28 @@ RIGA_ACTION_TOKEN = os.getenv("RIGA_ACTION_TOKEN")
 
 SCRIP_MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
 
-CONFIDENCE_MIN = 70
-MAX_RISK_PCT = 12.0
+CONFIDENCE_MIN = 64
+MAX_RISK_PCT = 15.0
 MIN_RISK_PCT = 1.0
 DEFAULT_BUFFER_PCT = 0.015
-MIN_CANDLES = 8
+MIN_CANDLES = 5
 
-TRANSITION_SCAN_MIN_SCORE = 40
-TRANSITION_STRIKES_AROUND = 2
-MAX_SCAN_STRIKES_AROUND = 5
+TRANSITION_SCAN_MIN_SCORE = 30
+TRANSITION_STRIKES_AROUND = 3
+MAX_SCAN_STRIKES_AROUND = 6
 PREMIUM_LED_SCAN_ALWAYS = True
 
 # v11.6 balanced opportunity controls: more scans, fewer false rejections, final confidence gate still active
 # FINNIFTY is manually blacklisted due repeated weak/loss signals in live testing.
 BLACKLISTED_INDEXES = set()
-FINAL_REQUIRE_FRESH_INDEX = True
-DEVELOPING_MIN_CONFIDENCE = 50
+FINAL_REQUIRE_FRESH_INDEX = False
+DEVELOPING_MIN_CONFIDENCE = 45
 WATCHLIST_MAX_ITEMS = 8
 REJECTED_SUMMARY_MAX_ITEMS = 12
 MOMENTUM_BREAKOUT_ALLOW = True
-MOMENTUM_BREAKOUT_MAX_PREMIUM_PCT = 3.5
-CHASE_VWAP_HARD_REJECT_PCT = 6.5
-LTP_SIGNAL_DISTANCE_MAX_PCT = 4.0
+MOMENTUM_BREAKOUT_MAX_PREMIUM_PCT = 5.5
+CHASE_VWAP_HARD_REJECT_PCT = 8.0
+LTP_SIGNAL_DISTANCE_MAX_PCT = 6.0
 
 client_obj = None
 scrip_master_cache = None
@@ -1041,7 +1041,7 @@ def analyze_index_structure(index_name: str, spot_data: Dict[str, Any], candles:
 
         if safe_num(ltp) and safe_num(close):
             chg = pct_change(ltp, close)
-            if chg >= 0.12:
+            if chg >= 0.08:
                 return {
                     "bias": "BULLISH",
                     "option_side": "CE",
@@ -1053,7 +1053,7 @@ def analyze_index_structure(index_name: str, spot_data: Dict[str, Any], candles:
                     "transition_scan": False,
                     "transition_sides": ["CE"],
                 }
-            if chg <= -0.12:
+            if chg <= -0.08:
                 return {
                     "bias": "BEARISH",
                     "option_side": "PE",
@@ -1151,7 +1151,7 @@ def analyze_index_structure(index_name: str, spot_data: Dict[str, Any], candles:
         "volume_available": vol_available,
     }
 
-    if score_bull >= 55 and score_bull > score_bear:
+    if score_bull >= 45 and score_bull > score_bear:
         return {
             **base,
             "bias": "BULLISH",
@@ -1164,7 +1164,7 @@ def analyze_index_structure(index_name: str, spot_data: Dict[str, Any], candles:
             "transition_sides": ["CE"],
         }
 
-    if score_bear >= 55 and score_bear > score_bull:
+    if score_bear >= 45 and score_bear > score_bull:
         return {
             **base,
             "bias": "BEARISH",
@@ -1215,7 +1215,7 @@ def analyze_option_buy_setup(index_bias, opt, ltp_data, candles, atm, index_name
     if not candles or len(candles) < MIN_CANDLES:
         return {"bias": "NO TRADE", "confidence": 0, "reason": "not enough option candle data", "candle_count": len(candles or [])}
 
-    opt_fresh, opt_freshness_reason = is_candle_data_fresh(candles, max_stale_minutes=18)
+    opt_fresh, opt_freshness_reason = is_candle_data_fresh(candles, max_stale_minutes=25)
     if not opt_fresh:
         return {
             "bias": "NO TRADE",
@@ -1315,7 +1315,7 @@ def analyze_option_buy_setup(index_bias, opt, ltp_data, candles, atm, index_name
             "reason": "late momentum chase rejected; wait for retest",
         }
 
-    if candle_strength(last) < 0.28:
+    if candle_strength(last) < 0.20:
         return {
             "bias": "NO TRADE",
             "confidence": score,
@@ -1325,7 +1325,7 @@ def analyze_option_buy_setup(index_bias, opt, ltp_data, candles, atm, index_name
             "candle_count": len(candles),
         }
 
-    if upper_wick(last) > body * 2.6 and candle_position(last) < 0.62:
+    if upper_wick(last) > body * 3.2 and candle_position(last) < 0.55:
         return {
             "bias": "NO TRADE",
             "confidence": score,
@@ -1355,7 +1355,7 @@ def analyze_option_buy_setup(index_bias, opt, ltp_data, candles, atm, index_name
             continue
 
         # Slightly wider tolerance because option premiums have spread/noise.
-        tolerance = 0.015
+        tolerance = 0.025
 
         touched_or_swept = last["low"] <= level * (1 + tolerance)
         reclaimed = last["close"] >= level
@@ -1382,10 +1382,10 @@ def analyze_option_buy_setup(index_bias, opt, ltp_data, candles, atm, index_name
             MOMENTUM_BREAKOUT_ALLOW
             and breakout_ref > 0
             and last["close"] > breakout_ref
-            and candle_position(last) >= 0.72
-            and is_bull_candle(last)
-            and (vol_ok or candle_position(last) >= 0.78)
-            and 0.12 <= mom <= MOMENTUM_BREAKOUT_MAX_PREMIUM_PCT
+            and candle_position(last) >= 0.60
+            and (is_bull_candle(last) or last["close"] > prev["high"])
+            and (vol_ok or candle_position(last) >= 0.68 or mom >= 0.20)
+            and 0.05 <= mom <= MOMENTUM_BREAKOUT_MAX_PREMIUM_PCT
             and vwap_ok
             and not index_bias.get("fallback_mode")
         )
@@ -1540,7 +1540,7 @@ def analyze_option_buy_setup(index_bias, opt, ltp_data, candles, atm, index_name
             "reason": f"RIGA sniper score below {CONFIDENCE_MIN}",
         }
 
-    if FINAL_REQUIRE_FRESH_INDEX and index_bias.get("fallback_mode"):
+    if FINAL_REQUIRE_FRESH_INDEX and index_bias.get("fallback_mode") and confidence < 72:
         return {
             "bias": "NO TRADE",
             "confidence": min(confidence, 69),
@@ -1763,10 +1763,10 @@ def build_index_candle_fallback_bias(index: str, spot_data: Dict[str, Any], cand
         chg = pct_change(float(ltp), float(close))
         direction_note = f"spot vs previous close {round(chg, 2)}%"
 
-        if chg >= 0.12:
+        if chg >= 0.08:
             transition_sides = ["CE"]
             score = 45 if chg < 0.40 else 50
-        elif chg <= -0.12:
+        elif chg <= -0.08:
             transition_sides = ["PE"]
             score = 45 if chg > -0.40 else 50
 
@@ -1952,7 +1952,7 @@ def scan_one_index(index: str, strikes_around: int = 3, interval: str = "FIVE_MI
         final_signal_ok = (
             signal.get("bias") in ["BUY_CE", "BUY_PE"]
             and signal.get("confidence", 0) >= CONFIDENCE_MIN
-            and not effective_index_bias.get("fallback_mode")
+            and (not effective_index_bias.get("fallback_mode") or signal.get("confidence", 0) >= 72)
             and index not in BLACKLISTED_INDEXES
             and "chase rejected" not in str(signal.get("reason", "")).lower()
         )
@@ -2670,6 +2670,50 @@ def riga_scan_simple_post(payload: ScanAllMarketsRequest, authorization: Optiona
         authorization=authorization,
     )
 
+
+
+@app.get("/activeScanText")
+def active_scan_text(
+    strikes_around: int = Query(6),
+    interval: str = Query("THREE_MINUTE"),
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
+):
+    """More active scanner text output. Shows final trade OR best trigger-ready setup.
+    Use this when normal quickScan feels too strict.
+    """
+    data = scan_all_markets(strikes_around=strikes_around, interval=interval, debug=True, authorization=authorization, token=token)
+    best = data.get("overall_best_trade") or empty_trade_payload()
+    if best.get("trade_available"):
+        return {"text": (
+            "ACTIVE TRADE\n"
+            f"Market: {best.get('index')}\n"
+            f"Option Trade: {best.get('option_trade')}\n"
+            f"Strike: {best.get('symbol') or best.get('strike')}\n"
+            f"Entry: {best.get('entry')}\n"
+            f"Stop Loss: {best.get('sl')}\n"
+            f"Target: {best.get('targets')}\n"
+            f"Confidence: {best.get('confidence')}%\n"
+            f"Reason: {best.get('reason')}"
+        )}
+    wl = data.get("watchlist", []) or []
+    if wl:
+        w = wl[0]
+        return {"text": (
+            "SETUP FORMING - WAIT FOR TRIGGER\n"
+            f"Market: {w.get('index')}\n"
+            f"Option Trade: {w.get('option_trade')}\n"
+            f"Strike: {w.get('symbol')}\n"
+            f"Current LTP: {w.get('ltp')}\n"
+            f"Entry only above: {w.get('watch_entry_above')}\n"
+            f"Retest/Hold zone: {w.get('retest_hold_zone')}\n"
+            f"SL below: {w.get('sl_below')}\n"
+            f"Targets after trigger: {w.get('targets_if_triggered')}\n"
+            f"Confidence: {w.get('confidence')}%\n"
+            f"Reason: {w.get('reason')}\n"
+            "Rule: Trigger hit + candle hold/retest compulsory. No blind entry."
+        )}
+    return {"text": "NO TRADE\nNo active trade and no trigger-ready setup found."}
 
 @app.get("/scan-all-options")
 def scan_all_options_alias(
